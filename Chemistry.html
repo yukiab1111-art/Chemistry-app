@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>多機能クイズアプリ</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root{--b:#f9fafb;--t:#333;--cbg:#fff;--csh:0 4px 20px rgb(0 0 0 / 10%);--h1c:#5987cb;--ibd:#ccc;--bbg:#6093ee;--bt:#fff;--obg:#f3f4f6;--ans-c:#1ca41c;--inc-c:red;}
+    body.dark{--b:#161514;--t:#ccc;--cbg:#000;--csh:0 4px 20px rgb(255 255 255 / 10%);--h1c:#6ba4ff;--ibd:#555;--bbg:#1e1e1e;--bt:#f1f5f9;--obg:#242424;}
+    
+    body { font-family: 'Segoe UI', sans-serif; background: var(--b); color: var(--t); margin: 0; padding: 20px; transition: 0.3s; }
+    .container { max-width: 700px; margin: 0 auto; padding: 20px; background: var(--cbg); border-radius: 1rem; box-shadow: var(--csh); }
+    h1 { text-align: center; color: var(--h1c); margin-bottom: 20px; }
+    input, select, button { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid var(--ibd); border-radius: 0.5rem; background: transparent; color: var(--t); box-sizing: border-box; }
+    label[for="flashcardMode"] { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
+    input[type="checkbox"] { width: auto; margin-bottom: 0; }
+    
+    button { background: var(--bbg); color: var(--bt); border: none; cursor: pointer; font-weight: bold; }
+    button:hover { opacity: 0.9; }
+    
+    .option button { text-align: left; margin-bottom: 8px; background: var(--obg); color: var(--t); }
+    #options.hidden-options { display: none !important; }
+
+    .result-block { padding: 1em; background: var(--obg); border-radius: 12px; margin: 1em 0; text-align: center; }
+    .correct { color: var(--ans-c); font-weight: bold; font-size: 1.2em; }
+    .incorrect { color: var(--inc-c); font-weight: bold; font-size: 1.2em; }
+    .question-text { font-size: 1.8em; font-weight: bold; text-align: center; margin: 20px 0; }
+    .genre-tag { display: inline-block; background: #eee; color: #555; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; margin-bottom: 10px; }
+
+    /* フラッシュカード用スタイル */
+    .flashcard-container {
+      border: 1px solid var(--ibd);
+      border-radius: 1rem;
+      background: var(--obg);
+      min-height: 250px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .flashcard-q { font-size: 1.8em; font-weight: bold; }
+    .flashcard-a {
+      font-size: 1.4em;
+      color: var(--h1c);
+      font-weight: bold;
+      margin-top: 15px;
+      border-top: 2px dashed var(--ibd);
+      padding-top: 15px;
+    }
+    #fc-reveal-btn { background: var(--bbg); }
+    #fc-next-btn { background: #666; }
+    #quitBtn, #fc-quitBtn { background: #888; }
+
+    .hidden { display: none; }
+    #loading { text-align: center; font-weight: bold; margin: 50px 0; color: var(--h1c); }
+    .settings-group { border: 1px solid var(--ibd); padding: 15px; border-radius: 8px; margin-bottom: 15px; }
+    #error-msg { color: red; text-align: center; margin: 20px; white-space: pre-wrap; }
+    
+    #mode-toggle { position: fixed; bottom: 1rem; left: 1rem; width: auto; background: rgba(0,0,0,0.5); color: #fff; padding: 0.5rem 1rem; border-radius: 20px; z-index: 100; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Webクイズアプリ</h1>
+  
+  <div id="loading">
+    データ読み込み中...<br>
+    <small>スプレッドシートから取得しています</small>
+  </div>
+  <div id="error-msg" class="hidden"></div>
+
+  <div id="settings" class="hidden">
+    <div class="settings-group">
+      <h3>出題設定</h3>
+      
+      <label>学習するシート（教材）を選択</label>
+      <select id="sheetSelect" onchange="onSheetChange()"></select>
+      
+      <label>出題順</label>
+      <select id="order">
+        <option value="random">ランダム（毎回シャッフル）</option>
+        <option value="sequential">順番通り（シートの上から）</option>
+      </select>
+      
+      <label for="flashcardMode">
+        <input type="checkbox" id="flashcardMode">
+        フラッシュカードモードで学習する
+      </label>
+      
+      <button id="startButton" onclick="startQuiz()">スタート！</button>
+    </div>
+  </div>
+
+  <div id="quiz" class="hidden">
+    <div class="result-block hidden" id="feedback"></div>
+    <div style="display:flex; justify-content:space-between; color:#888;">
+      <span id="questionNumber"></span>
+      <span id="genreDisplay" class="genre-tag"></span>
+    </div>
+    <div class="question-text" id="questionText"></div>
+    <div id="options" class="option"></div>
+    <button id="nextBtn" class="hidden" onclick="nextQuestion()">次へ</button>
+    <button id="quitBtn" style="background:#888; margin-top:20px;" onclick="quitQuiz()">中断して設定へ</button>
+  </div>
+
+  <div id="flashcard" class="hidden">
+    <div style="display:flex; justify-content:space-between; color:#888;">
+      <span id="fc-questionNumber"></span>
+      <span id="fc-genreDisplay" class="genre-tag"></span>
+    </div>
+    <div class="flashcard-container">
+      <div class="flashcard-q" id="fc-question"></div>
+      <div class="flashcard-a hidden" id="fc-answer"></div>
+    </div>
+    <button id="fc-reveal-btn" onclick="revealFlashcardAnswer()">答えを見る (Enter)</button>
+    <button id="fc-next-btn" class="hidden" onclick="nextFlashcard()">次へ (Enter)</button>
+    <button id="fc-quitBtn" style="background:#888; margin-top:20px;" onclick="quitQuiz()">中断して設定へ</button>
+  </div>
+
+
+  <div id="result" class="hidden">
+    <h2>結果発表</h2>
+    <div class="result-block" id="scoreDisplay"></div>
+    <div id="mistakeList"></div>
+    <button onclick="location.reload()">最初の画面に戻る</button>
+  </div>
+</div>
+
+<button id="mode-toggle">Dark Mode</button>
+
+<script>
+// =========================================================================
+//  ★設定エリア: ここにGASのウェブアプリURLを貼り付けてください
+// =========================================================================
+const API_URL = "https://script.google.com/macros/s/AKfycbxl0cW1DP_cjU-2INegZOu0tOGZVF4FSUPskoiBS1CEqatbD-pDUE7QqYMUQVbYEbWJbg/exec";
+// =========================================================================
+
+const FIXED_NUM_CHOICES = 4;
+const FIXED_DIRECTION = 'qa'; 
+
+let allSheetsData = {}; 
+let quizDataPool = [];
+let quizList = [];
+let currentQuestionIndex = 0;
+let score = 0; 
+let isAnswered = false; 
+let isFlashcardRevealed = false; 
+
+document.addEventListener("DOMContentLoaded", () => {
+  fetchData();
+  document.getElementById("mode-toggle").addEventListener("click", () => document.body.classList.toggle("dark"));
+  
+  document.addEventListener("keydown", handleKeyDown);
+});
+
+async function fetchData() {
+  const loading = document.getElementById("loading");
+  const settings = document.getElementById("settings");
+  const errorMsg = document.getElementById("error-msg");
+
+  if (API_URL.includes("★")) {
+    loading.classList.add("hidden");
+    errorMsg.innerText = "エラー: コード内の「API_URL」に\nGASのURLが設定されていません。\nHTMLファイルを編集してURLを貼り付けてください。";
+    errorMsg.classList.remove("hidden");
+    return;
+  }
+  
+  try {
+    const res = await fetch(API_URL);
+    if (!res.ok) throw new Error("通信エラー: " + res.status);
+    
+    allSheetsData = await res.json();
+    
+    const sheetSelect = document.getElementById("sheetSelect");
+    sheetSelect.innerHTML = "";
+    const sheetNames = Object.keys(allSheetsData);
+    
+    if (sheetNames.length === 0) throw new Error("データが見つかりません");
+
+    const allOption = document.createElement("option");
+    allOption.value = "all_sheets";
+    allOption.innerText = "★すべてのシートから出題";
+    sheetSelect.appendChild(allOption);
+
+    sheetNames.forEach(name => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.innerText = name;
+      sheetSelect.appendChild(option);
+    });
+
+    loading.classList.add("hidden");
+    settings.classList.remove("hidden");
+
+  } catch (e) {
+    loading.classList.add("hidden");
+    errorMsg.innerText = "読み込み失敗:\n" + e.message + "\n\nGASのデプロイ設定を確認してください。\n(アクセス権限が「全員」になっているか等)";
+    errorMsg.classList.remove("hidden");
+  }
+}
+
+function onSheetChange() {
+  // 選択肢の変更時に特別な処理は不要
+}
+
+function startQuiz() {
+  const order = document.getElementById("order").value;
+  const isFlashcardMode = document.getElementById("flashcardMode").checked;
+  const selectedSheet = document.getElementById("sheetSelect").value;
+  
+  let rawData = [];
+  quizDataPool = []; 
+
+  for (const sheetName in allSheetsData) {
+      if (allSheetsData.hasOwnProperty(sheetName)) {
+          quizDataPool = quizDataPool.concat(allSheetsData[sheetName]);
+      }
+  }
+
+  if (selectedSheet === 'all_sheets') {
+      rawData = quizDataPool;
+  } else {
+      rawData = allSheetsData[selectedSheet] || [];
+  }
+  
+  if (rawData.length === 0) {
+      alert("選択されたシート、または全てのシートに有効な問題データがありません。");
+      return;
+  }
+  
+  // D/E/F列のプロパティを削除したシンプルなマッピングに戻す
+  quizList = rawData.map(item => ({
+    question: item.q, 
+    answer:   item.a, 
+    genre:    item.genre, 
+    original: item
+  }));
+  
+  if (order === 'random') {
+    shuffleArray(quizList);
+  }
+
+  currentQuestionIndex = 0;
+  score = 0;
+  
+  document.getElementById("settings").classList.add("hidden");
+
+  if (isFlashcardMode) {
+    document.getElementById("quiz").classList.add("hidden");
+    document.getElementById("flashcard").classList.remove("hidden");
+    showFlashcard();
+  } else {
+    document.getElementById("flashcard").classList.add("hidden");
+    document.getElementById("quiz").classList.remove("hidden");
+    showQuestion();
+  }
+}
+
+// ===============================================
+// クイズモード (4択) - 自動生成ロジックに戻す
+// ===============================================
+
+function showQuestion() {
+  isAnswered = false;
+  const data = quizList[currentQuestionIndex];
+  const numMainChoices = FIXED_NUM_CHOICES;
+  const targetDistractorCount = numMainChoices - 1; // 3
+  
+  document.getElementById("questionNumber").innerText = `Q. ${currentQuestionIndex + 1} / ${quizList.length}`;
+  document.getElementById("genreDisplay").innerText = data.genre || "";
+  document.getElementById("questionText").innerText = data.question;
+  document.getElementById("feedback").classList.add("hidden");
+  document.getElementById("nextBtn").classList.add("hidden");
+
+  const optionsDiv = document.getElementById("options");
+  optionsDiv.innerHTML = "";
+  optionsDiv.classList.remove('hidden-options'); 
+
+  let distractors = [];
+  const correctAnswerTrimmed = String(data.answer).trim();
+
+  // --- 自動生成ロジック (同じジャンル優先) ---
+
+  // 1. 全てのユニークな誤答の候補を抽出 (正解と空欄を除く)
+  let allPossibleAnswers = quizDataPool.map(item => String(item.a).trim())
+    .filter(val => val !== "" && val !== correctAnswerTrimmed);
+  allPossibleAnswers = [...new Set(allPossibleAnswers)]; 
+  
+  // 2. 同じジャンルに属する誤答（どこかの問題の答えとして使われているもの）を特定
+  let sameGenreCandidates = allPossibleAnswers.filter(answer => {
+    return quizDataPool.some(item => 
+      String(item.a).trim() === answer && item.genre === data.genre
+    );
+  });
+  
+  // a) 同じジャンル内の誤答をシャッフルし、優先的に選択肢に追加 (最大3つ)
+  shuffleArray(sameGenreCandidates);
+  
+  let neededDistractors = targetDistractorCount; 
+  
+  for (let i = 0; i < sameGenreCandidates.length && distractors.length < neededDistractors; i++) {
+    distractors.push(sameGenreCandidates[i]);
+  }
+  
+  // b) 不足分を他のジャンル/残りの誤答から補う
+  if (distractors.length < neededDistractorCount) {
+    // 既に採用された同じジャンルの誤答を除いた、残りの全候補
+    let otherCandidates = allPossibleAnswers.filter(answer => !distractors.includes(answer));
+    shuffleArray(otherCandidates);
+    
+    let remainingNeeded = neededDistractors - distractors.length;
+    
+    for (let i = 0; i < remainingNeeded && i < otherCandidates.length; i++) {
+      distractors.push(otherCandidates[i]);
+    }
+  }
+
+  // --- 自動生成ロジックここまで ---
+  
+  let choices = [...distractors];
+  choices.push(data.answer); 
+  shuffleArray(choices);
+  choices.push("わからない");
+
+  choices.forEach((choice, index) => {
+    const btn = document.createElement("button");
+    const labelNumber = index + 1;
+    
+    if (choice === 'わからない') {
+      btn.innerText = 'わからない (Enter)';
+      btn.dataset.key = 'Enter';
+    } else {
+      btn.innerText = `${labelNumber}. ${choice}`;
+      btn.dataset.key = String(labelNumber);
+    }
+    
+    btn.onclick = () => checkAnswer(choice, data.answer);
+    optionsDiv.appendChild(btn);
+  });
+}
+
+function checkAnswer(selected, correct) {
+  if(isAnswered) return;
+  isAnswered = true;
+
+  const feedback = document.getElementById("feedback");
+  const optionsDiv = document.getElementById("options");
+  
+  feedback.classList.remove("hidden");
+  optionsDiv.classList.add('hidden-options'); 
+  
+  if(selected === correct) {
+    score++;
+    feedback.innerHTML = `<div class="correct">正解！</div>`;
+  } else {
+    feedback.innerHTML = `<div class="incorrect">不正解...</div><div>正解: <strong>${correct}</strong></div>`;
+    quizList[currentQuestionIndex].mistake = true;
+  }
+
+  document.getElementById("nextBtn").classList.remove("hidden");
+}
+
+function nextQuestion() {
+  currentQuestionIndex++;
+  if(currentQuestionIndex < quizList.length) {
+    showQuestion();
+  } else {
+    showResult();
+  }
+}
+
+// ===============================================
+// フラッシュカードモード
+// ===============================================
+
+function showFlashcard() {
+  isFlashcardRevealed = false;
+  const data = quizList[currentQuestionIndex];
+
+  document.getElementById("fc-questionNumber").innerText = `Q. ${currentQuestionIndex + 1} / ${quizList.length}`;
+  document.getElementById("fc-genreDisplay").innerText = data.genre || "";
+  
+  document.getElementById("fc-question").innerText = data.question;
+  document.getElementById("fc-answer").innerText = data.answer;
+  
+  document.getElementById("fc-answer").classList.add("hidden");
+  document.getElementById("fc-reveal-btn").classList.remove("hidden");
+  document.getElementById("fc-next-btn").classList.add("hidden");
+}
+
+function revealFlashcardAnswer() {
+  if (isFlashcardRevealed) return;
+  isFlashcardRevealed = true;
+
+  document.getElementById("fc-answer").classList.remove("hidden");
+  document.getElementById("fc-reveal-btn").classList.add("hidden");
+  document.getElementById("fc-next-btn").classList.remove("hidden");
+}
+
+function nextFlashcard() {
+  currentQuestionIndex++;
+  if(currentQuestionIndex < quizList.length) {
+    showFlashcard();
+  } else {
+    alert("学習が完了しました！");
+    quitQuiz(true);
+  }
+}
+
+
+// ===============================================
+// 共通の関数
+// ===============================================
+
+function showResult() {
+  document.getElementById("quiz").classList.add("hidden");
+  document.getElementById("result").classList.remove("hidden");
+  
+  const percentage = Math.round((score / quizList.length) * 100);
+  document.getElementById("scoreDisplay").innerHTML = `正解数: ${score} / ${quizList.length} (${percentage}%)`;
+
+  const mistakes = quizList.filter(q => q.mistake);
+  const listDiv = document.getElementById("mistakeList");
+  
+  if(mistakes.length > 0) {
+    
+    const mistakesByGenre = {};
+    mistakes.forEach(m => {
+      const genre = m.genre || "ジャンルなし";
+      if (!mistakesByGenre[genre]) {
+        mistakesByGenre[genre] = [];
+      }
+      mistakesByGenre[genre].push(m);
+    });
+
+    let html = "<h3>復習リスト</h3><div style='text-align: left;'>";
+    
+    const sortedGenres = Object.keys(mistakesByGenre).sort();
+
+    sortedGenres.forEach(genre => {
+      html += `<h4 style="margin-top: 15px; border-bottom: 1px solid var(--ibd); padding-bottom: 5px; color: var(--h1c);">${genre} (${mistakesByGenre[genre].length}問)</h4>`;
+      html += "<ul style='list-style-type: none; padding-left: 10px; margin-top: 5px;'>"; 
+      
+      mistakesByGenre[genre].forEach(m => {
+        html += `<li style="margin-bottom: 10px; padding-left: 10px; border-left: 3px solid var(--bbg); line-height: 1.4;">`;
+        html += `<span style="font-weight: bold; margin-right: 5px;">Q:</span> ${m.question}<br>`;
+        html += `<span style="font-weight: bold; margin-right: 5px;">A:</span> <strong style="color: var(--ans-c);">${m.answer}</strong>`;
+        html += `</li>`;
+      });
+      html += "</ul>";
+    });
+    html += "</div>";
+    listDiv.innerHTML = html;
+  } else {
+    listDiv.innerHTML = "<h3>Perfect!! 全問正解です！</h3>";
+  }
+}
+
+function quitQuiz(force = false) {
+  if(force || confirm("学習を中断して設定画面に戻りますか？")) {
+    document.getElementById("quiz").classList.add("hidden");
+    document.getElementById("flashcard").classList.add("hidden");
+    document.getElementById("result").classList.add("hidden");
+    document.getElementById("settings").classList.remove("hidden");
+  }
+}
+
+function shuffleArray(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+}
+
+function handleKeyDown(event) {
+  if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT') {
+    return;
+  }
+
+  const key = event.key;
+  const quizDiv = document.getElementById('quiz');
+  const flashcardDiv = document.getElementById('flashcard');
+
+  // フラッシュカードモードのキー操作
+  if (!flashcardDiv.classList.contains('hidden')) {
+    if (key === 'Enter') {
+      if (isFlashcardRevealed) {
+        document.getElementById('fc-next-btn').click();
+      } else {
+        document.getElementById('fc-reveal-btn').click();
+      }
+      event.preventDefault();
+    }
+    return;
+  }
+  
+  // クイズモードのキー操作
+  if (!quizDiv.classList.contains('hidden')) {
+    // 1. Enterキーの処理
+    if (key === 'Enter') {
+      const nextBtn = document.getElementById('nextBtn');
+      
+      if (nextBtn && !nextBtn.classList.contains('hidden')) {
+        nextBtn.click();
+      } else if (!isAnswered) {
+        const unknownBtn = document.querySelector('#options button[data-key="Enter"]');
+        if (unknownBtn) {
+          unknownBtn.click();
+        }
+      }
+      event.preventDefault();
+      return;
+    }
+
+    // 2. 数字キーの処理
+    if (!isAnswered && key >= '1' && key <= '9') {
+      const targetBtn = document.querySelector(`#options button[data-key="${key}"]`);
+      if (targetBtn) {
+        targetBtn.click();
+        event.preventDefault();
+      }
+    }
+  }
+}
+</script>
+</body>
+</html>
